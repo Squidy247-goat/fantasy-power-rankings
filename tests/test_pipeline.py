@@ -90,9 +90,88 @@ class TestBuild:
         )
         assert len(built.teams) == 12
 
+    def test_a_platform_can_supply_rosters(self, example_rosters, config_path, csv_path):
+        """Sanity check that the platform path and the file path converge."""
+        built = pipeline.build(
+            config_path=config_path,
+            rankings_path=csv_path,
+            rosters_path="does/not/exist.yaml",
+            rosters=example_rosters,
+            injury_status={"Jahmyr Gibbs": "QUESTIONABLE"},
+        )
+        assert built.injury_status["Jahmyr Gibbs"] == "QUESTIONABLE"
+
     def test_consensus_is_derived_not_read(self, league):
         """Nothing in the input file is a consensus rank, so every one of these
         had to be computed."""
         gibbs = league.table["Jahmyr Gibbs"]
         assert gibbs.rank == pytest.approx(1.75)
         assert gibbs.source_count == 4
+
+
+class TestMissingPlayers:
+    """Rosters drift from a rankings snapshot. Waiver claims and backup
+    quarterbacks show up on a roster long before they show up on a list."""
+
+    def _roster_with(self, example_rosters, *extra):
+        from dataclasses import replace
+
+        team, roster = next(iter(example_rosters.items()))
+        return {team: replace(roster, bench=[*roster.bench, *extra])}
+
+    def test_all_missing_players_are_reported_at_once(
+        self, example_rosters, config_path, csv_path
+    ):
+        """One error listing everyone beats one error per player, since the
+        fix is a single edit to the CSV either way."""
+        rosters = self._roster_with(example_rosters, "Patrick Mahomes", "Jared Goff")
+
+        with pytest.raises(pipeline.MissingPlayers) as excinfo:
+            pipeline.build(
+                config_path=config_path,
+                rankings_path=csv_path,
+                rosters_path="unused.yaml",
+                rosters=rosters,
+            )
+
+        message = str(excinfo.value)
+        assert "Patrick Mahomes" in message
+        assert "Jared Goff" in message
+        assert "2 rostered player(s)" in message
+
+    def test_the_error_names_the_team(self, example_rosters, config_path, csv_path):
+        rosters = self._roster_with(example_rosters, "Nobody At All")
+        team = next(iter(rosters))
+        with pytest.raises(pipeline.MissingPlayers, match=team):
+            pipeline.build(
+                config_path=config_path,
+                rankings_path=csv_path,
+                rosters_path="unused.yaml",
+                rosters=rosters,
+            )
+
+    def test_it_says_how_to_fix_it(self, example_rosters, config_path, csv_path):
+        rosters = self._roster_with(example_rosters, "Nobody At All")
+        with pytest.raises(pipeline.MissingPlayers, match="Add a row for each"):
+            pipeline.build(
+                config_path=config_path,
+                rankings_path=csv_path,
+                rosters_path="unused.yaml",
+                rosters=rosters,
+            )
+
+    def test_suffix_spellings_do_not_count_as_missing(
+        self, example_rosters, config_path, csv_path
+    ):
+        """A different spelling of a ranked player isn't a missing player."""
+        from dataclasses import replace
+
+        team, roster = next(iter(example_rosters.items()))
+        renamed = replace(roster, rb=[f"{roster.rb[0]} Jr.", roster.rb[1]])
+        built = pipeline.build(
+            config_path=config_path,
+            rankings_path=csv_path,
+            rosters_path="unused.yaml",
+            rosters={team: renamed},
+        )
+        assert built.lineups[team]

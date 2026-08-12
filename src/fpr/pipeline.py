@@ -39,10 +39,15 @@ class League:
     lineups: dict[str, Lineup]
     injury_status: dict[str, str]
     optimal: bool
+    platform: str | None = None
 
     @property
     def teams(self) -> list[str]:
         return list(self.lineups)
+
+    @property
+    def source_description(self) -> str:
+        return f"synced from {self.platform}" if self.platform else "from the roster file"
 
 
 def build(
@@ -52,18 +57,28 @@ def build(
     rosters_path: pathlib.Path | str = DEFAULT_ROSTERS,
     rosters: dict[str, Roster] | None = None,
     injury_status: dict[str, str] | None = None,
+    platform: str | None = None,
+    env_path: str = ".env",
     optimal: bool = False,
 ) -> League:
     """Load everything and slot every roster.
 
-    Pass `rosters` to use what a platform adapter returned instead of reading
-    the YAML file; `rosters_path` is ignored in that case.
+    Rosters come from one of three places, in precedence order: passed in
+    directly, synced from a platform, or read from the YAML file.
     """
     cfg = config.load(config_path)
     table = build_consensus(raw_csv.load(rankings_path), cfg)
 
+    if rosters is None and platform:
+        rosters, synced_status = _sync(platform, env_path)
+        # An explicitly supplied status wins, so a caller can override what the
+        # platform reported.
+        injury_status = injury_status or synced_status
+
     if rosters is None:
         rosters = roster_file.load(rosters_path)
+
+    _check_everyone_is_ranked(rosters, table)
 
     slot = lineup_mod.build_optimal if optimal else lineup_mod.build
     lineups = {team: slot(team, roster, table, cfg) for team, roster in rosters.items()}
@@ -75,4 +90,56 @@ def build(
         lineups=lineups,
         injury_status=injury_status or {},
         optimal=optimal,
+        platform=platform,
     )
+
+
+class MissingPlayers(KeyError):
+    """Rostered players with no row in the rankings input."""
+
+
+def _check_everyone_is_ranked(rosters: dict[str, Roster], table: ConsensusTable) -> None:
+    """Fail once with the whole list rather than once per player.
+
+    Rosters drift from a rankings snapshot constantly -- waiver claims, and
+    especially backup quarterbacks, who most published lists don't bother
+    ranking. Hitting these one at a time means editing the CSV, re-running,
+    and hitting the next one. Collecting them makes it a single edit.
+
+    Note this is a different situation from section 1.1's unranked player. That
+    one has a row in the input with no source ranks and correctly gets
+    replacement level. This one has no row at all, so there's nothing to say
+    what position he plays or whether he belongs in the league.
+    """
+    missing: dict[str, list[str]] = {}
+    for team, roster in rosters.items():
+        absent = [name for name in roster.all_players() if name not in table]
+        if absent:
+            missing[team] = absent
+
+    if not missing:
+        return
+
+    total = sum(len(names) for names in missing.values())
+    detail = "; ".join(f"{team}: {', '.join(names)}" for team, names in missing.items())
+    raise MissingPlayers(
+        f"{total} rostered player(s) have no row in the rankings input -- {detail}. "
+        f"Add a row for each (name, position, and whatever ranks the sources give, "
+        f"blank where a source doesn't list him). Backup quarterbacks are the usual "
+        f"culprit; they're excluded from bench eligibility anyway, but they still "
+        f"need a row so nothing gets silently dropped."
+    )
+
+
+def _sync(platform: str, env_path: str) -> tuple[dict[str, Roster], dict[str, str]]:
+    """Fetch rosters from a platform.
+
+    Deliberately not wrapped in a fallback. A sync failure has to stop the run,
+    because the alternative -- quietly carrying on with stale or partial
+    rosters -- produces a report that looks entirely normal and is wrong.
+    """
+    from fpr import platforms
+
+    adapter = platforms.get(platform)
+    credentials = platforms.credentials_for(platform, env_path)
+    return adapter.sync_with_status(credentials)

@@ -11,7 +11,7 @@ import argparse
 import pathlib
 import sys
 
-from fpr import config, pipeline
+from fpr import config, pipeline, platforms
 from fpr.adapters.raw_csv import SourceDataError
 from fpr.adapters.rosters import RosterFileError
 from fpr.core import simulate
@@ -30,6 +30,7 @@ EXPECTED = (
     ConsensusError,
     LineupError,
     SimulationError,
+    platforms.PlatformError,
     KeyError,
 )
 
@@ -52,6 +53,12 @@ def _common_args(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="recompute the best legal lineup instead of using the roster as set",
     )
+    parser.add_argument(
+        "--platform",
+        choices=platforms.available(),
+        help="sync rosters live instead of reading the roster file",
+    )
+    parser.add_argument("--env", default=".env", help="path to the credentials file")
     parser.add_argument("-o", "--out", type=pathlib.Path, help="write to a file instead of stdout")
 
 
@@ -71,6 +78,19 @@ def build_parser() -> argparse.ArgumentParser:
     sim = sub.add_parser("simulate", help="rankings plus the Monte Carlo, always")
     _common_args(sim)
     _simulation_args(sim)
+
+    sync = sub.add_parser(
+        "sync", help="fetch rosters from a platform and write them to a roster file"
+    )
+    sync.add_argument("--platform", choices=platforms.available(), required=True)
+    sync.add_argument("--env", default=".env", help="path to the credentials file")
+    sync.add_argument(
+        "-o",
+        "--out",
+        type=pathlib.Path,
+        default=pipeline.DEFAULT_ROSTERS,
+        help="where to write the roster file",
+    )
 
     return parser
 
@@ -92,8 +112,67 @@ def _build(args):
         config_path=args.config,
         rankings_path=args.rankings,
         rosters_path=args.rosters,
+        platform=args.platform,
+        env_path=args.env,
         optimal=args.optimal,
     )
+
+
+def cmd_sync(args) -> str:
+    """Fetch rosters and write them out, without ranking anything.
+
+    Useful on its own for snapshotting a league, and it's the thing to run
+    first when a platform sync is misbehaving -- it fails on the sync rather
+    than somewhere inside the consensus build.
+    """
+    adapter = platforms.get(args.platform)
+    credentials = platforms.credentials_for(args.platform, args.env)
+    rosters, statuses = adapter.sync_with_status(credentials)
+
+    if not rosters:
+        raise platforms.PlatformError(f"{args.platform} returned no rosters")
+
+    print(
+        f"synced {len(rosters)} teams from {args.platform}, "
+        f"{sum(len(r.all_players()) for r in rosters.values())} players, "
+        f"{len(statuses)} with an injury designation",
+        file=sys.stderr,
+    )
+    return rosters_yaml(rosters, args.platform, statuses)
+
+
+def rosters_yaml(rosters, platform: str, statuses: dict[str, str]) -> str:
+    lines = [
+        f"# Synced from {platform}. Regenerate with: fpr sync --platform {platform}",
+        "#",
+        "# Slot keys are position groups. Which back is RB1 gets decided by value",
+        "# at runtime, so the order here doesn't matter.",
+        "",
+        "teams:",
+    ]
+    for team, roster in rosters.items():
+        lines.append(f"  {_quote(team)}:")
+        for group in ("qb", "rb", "wr", "te", "flex", "bench"):
+            names = ", ".join(getattr(roster, group))
+            lines.append(f"    {group}: [{names}]")
+        lines.append("")
+
+    if statuses:
+        lines.append("# Injury designations at sync time, for reference. These are read")
+        lines.append("# live from the platform on each run, not from this file.")
+        for name, status in sorted(statuses.items()):
+            lines.append(f"#   {name}: {status}")
+        lines.append("")
+
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _quote(name: str) -> str:
+    """YAML-safe team name. Managers put anything in these."""
+    if any(ch in name for ch in ":#{}[],&*?|<>=!%@`\"'") or name.strip() != name:
+        escaped = name.replace('"', '\\"')
+        return f'"{escaped}"'
+    return name
 
 
 def cmd_rank(args) -> str:
@@ -120,7 +199,7 @@ def _simulate(league, args):
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
-    handlers = {"rank": cmd_rank, "simulate": cmd_simulate}
+    handlers = {"rank": cmd_rank, "simulate": cmd_simulate, "sync": cmd_sync}
     try:
         output = handlers[args.command](args)
     except EXPECTED as exc:
