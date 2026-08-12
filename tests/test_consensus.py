@@ -178,6 +178,11 @@ class TestFiltering:
             build([make("Brian Robinson", a=1.0), make("Brian Robinson Jr.", a=2.0)], cfg)
 
 
+@pytest.fixture
+def table(real_table):
+    return real_table
+
+
 class TestAgainstRealData:
     """Section 7's sanity check, as a test rather than an eyeball."""
 

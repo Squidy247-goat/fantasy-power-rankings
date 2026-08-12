@@ -27,6 +27,10 @@ def raw_players():
 
 
 @pytest.fixture(scope="session")
-def table(cfg, raw_players):
-    """Consensus built from the real CSV, shared across the suite."""
+def real_table(cfg, raw_players):
+    """Consensus built from the real CSV, shared across the suite.
+
+    Named distinctly because several test modules define their own small
+    hand-built table as `table`.
+    """
     return build(raw_players, cfg)
