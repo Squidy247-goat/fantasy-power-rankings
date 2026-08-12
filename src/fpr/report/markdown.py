@@ -10,6 +10,7 @@ single row of it.
 from __future__ import annotations
 
 from fpr.core.rankings import Standings, positional_strength, run
+from fpr.core.simulate import SimulationResult, coin_flip_fraction
 from fpr.pipeline import League
 
 
@@ -94,8 +95,80 @@ def lineup_tables(league: League, standings: Standings) -> str:
     return "\n\n".join(chunks)
 
 
-def render(league: League) -> str:
-    """The full deterministic report."""
+def simulation_table(result: SimulationResult) -> str:
+    rows = []
+    top_n = min(4, len(result.teams))
+    for team in result.ordered():
+        rows.append(
+            [
+                team,
+                f"{result.expected_finish(team):.2f}",
+                f"{result.p_first(team):.1%}",
+                f"{result.p_top(team, top_n):.1%}",
+                f"{result.p_last(team):.1%}",
+            ]
+        )
+    return _table(
+        ["Team", "Expected finish", "P(1st)", f"P(top {top_n})", "P(last)"],
+        rows,
+        ["left", "right", "right", "right", "right"],
+    )
+
+
+def simulation_section(league: League, result: SimulationResult) -> str:
+    """The probabilistic half, plus the bench weight it measured."""
+    low, high = result.bench_weight_ci
+    availability = (
+        "one flat availability rate for everybody"
+        if result.flat_availability
+        else "per-player availability from position and injury designation"
+    )
+
+    lines = [
+        "## Simulation",
+        "",
+        f"{result.trials:,} trials. Each one redraws every player's rank from a "
+        f"normal centred on his consensus and widened by how much the sources "
+        f"disagree about him, re-sorts every lineup on the drawn values, plays a "
+        f"{result.weeks}-week season using {availability}, and replays the round "
+        f"robin. A team's finish is a distribution, not a number.",
+        "",
+        f"About {coin_flip_fraction(league):.0%} of the deterministic slot matchups "
+        f"were decided by a margin narrower than the sources' own disagreement about "
+        f"the two players involved. That share of the deterministic report's wins are "
+        f"closer to coin flips than to results.",
+        "",
+        simulation_table(result),
+        "",
+        "### Bench weight",
+        "",
+        f"Measured at **{result.bench_weight:.3f}** (95% interval "
+        f"{low:.3f} to {high:.3f}), against **{result.configured_bench_weight:g}** "
+        f"configured in league.yaml.",
+        "",
+        "This is the share of realized lineup value that came from bench players "
+        "covering injured starters, rather than a guess. Bench players are worth "
+        "something for exactly one reason -- starters miss games -- so simulating "
+        "the missing and the covering measures the thing directly. A bench player "
+        "who is himself unavailable can't cover, and nobody covers an injured "
+        "quarterback at all, since backup QBs aren't bench-eligible.",
+        "",
+    ]
+
+    if result.bench_weight_disagrees:
+        lines += [
+            f"> **The configured bench weight is off.** It differs from the measured "
+            f"value by more than {result.bench_weight_tolerance:g}. Update "
+            f"`slot_weights` in `config/league.yaml` to about "
+            f"{result.bench_weight:.2f}.",
+            "",
+        ]
+
+    return "\n".join(lines)
+
+
+def render(league: League, result: SimulationResult | None = None) -> str:
+    """The full report. Includes the simulation section when one was run."""
     cfg = league.cfg
     standings = run(league.lineups, cfg)
 
@@ -129,6 +202,12 @@ def render(league: League) -> str:
         "",
         positional_table(league, standings),
         "",
+    ]
+
+    if result is not None:
+        parts += [simulation_section(league, result), ""]
+
+    parts += [
         "## Lineups",
         "",
         lineup_tables(league, standings),
