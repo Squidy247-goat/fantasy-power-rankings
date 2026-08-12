@@ -2,7 +2,7 @@ import pathlib
 
 import pytest
 
-from fpr import config
+from fpr import config, pipeline
 from fpr.adapters import raw_csv, rosters
 from fpr.core import lineup
 from fpr.core.consensus import build
@@ -16,6 +16,16 @@ ROSTERS_PATH = REPO_ROOT / "config" / "rosters.example.yaml"
 @pytest.fixture(scope="session")
 def config_path():
     return CONFIG_PATH
+
+
+@pytest.fixture(scope="session")
+def csv_path():
+    return CSV_PATH
+
+
+@pytest.fixture(scope="session")
+def rosters_path():
+    return ROSTERS_PATH
 
 
 @pytest.fixture(scope="session")
@@ -50,3 +60,20 @@ def league_lineups(example_rosters, real_table, cfg):
         team: lineup.build(team, roster, real_table, cfg)
         for team, roster in example_rosters.items()
     }
+
+
+@pytest.fixture(scope="session")
+def league():
+    return pipeline.build(
+        config_path=CONFIG_PATH, rankings_path=CSV_PATH, rosters_path=ROSTERS_PATH
+    )
+
+
+@pytest.fixture(scope="session")
+def optimal_league():
+    return pipeline.build(
+        config_path=CONFIG_PATH,
+        rankings_path=CSV_PATH,
+        rosters_path=ROSTERS_PATH,
+        optimal=True,
+    )

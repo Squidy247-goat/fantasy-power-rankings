@@ -68,6 +68,19 @@ class TeamResult:
     def record(self) -> str:
         return f"{self.wins}-{self.losses}-{self.ties}"
 
+    def record_at(self, slots) -> str:
+        """Record across a subset of slots.
+
+        Worth reporting for starters alone, because the overall record counts
+        bench matchups at face value while `score` weights them down to almost
+        nothing. Without this a team can sit sixth with the third-best record
+        and look like a bug, when really it just piled up cheap bench wins.
+        """
+        wins = sum(self.slots[s].wins for s in slots)
+        losses = sum(self.slots[s].losses for s in slots)
+        ties = sum(self.slots[s].ties for s in slots)
+        return f"{wins}-{losses}-{ties}"
+
 
 @dataclass
 class Standings:
