@@ -139,8 +139,10 @@ class TestIdempotence:
 class TestAgainstRealData:
     """The CSV is the actual input, so it gets to be a test fixture too."""
 
-    def test_csv_has_expected_size(self, csv_names):
-        assert len(csv_names) == 165
+    def test_the_csv_is_big_enough_to_matter(self, csv_names):
+        # Not pinned to an exact count -- the file gets re-exported. Just big
+        # enough that the collision and stability checks below mean something.
+        assert len(csv_names) > 150
 
     def test_no_name_normalizes_to_empty(self, csv_names):
         assert [n for n in csv_names if not normalize(n)] == []

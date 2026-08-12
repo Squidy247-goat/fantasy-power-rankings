@@ -187,7 +187,8 @@ class TestAgainstRealData:
     """Section 7's sanity check, as a test rather than an eyeball."""
 
     def test_every_rostered_player_survives(self, table, raw_players):
-        assert len(table) == len(raw_players) == 165
+        # Nothing may be dropped between the file and the table.
+        assert len(table) == len(raw_players)
 
     def test_the_rb_leading_most_columns_lands_at_the_top(self, table, raw_players):
         """Gibbs is 1st in two of the four source columns and 2nd/3rd in the

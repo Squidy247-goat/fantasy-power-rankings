@@ -25,6 +25,10 @@ from fpr.adapters import raw_csv  # noqa: E402
 from fpr.core.consensus import build  # noqa: E402
 from fpr.core.lineup import Roster, build_optimal  # noqa: E402
 
+# 10 modeled slots plus a few spare bench bodies, which is what a real ESPN
+# roster in this league looks like.
+ROUNDS = 14
+
 REPO = pathlib.Path(__file__).resolve().parents[1]
 OUT = REPO / "config" / "rosters.example.yaml"
 
@@ -130,8 +134,10 @@ def main() -> None:
     table = build(raw_csv.load(REPO / "raw_rankings.csv"), cfg)
     ranked = table.ordered()
 
-    rounds = -(-len(ranked) // cfg.teams)  # ceiling, so nobody is left undrafted
-    squads = draft(ranked, cfg.teams, rounds)
+    # Draft to a realistic depth rather than exhausting the pool. The rankings
+    # file covers far more players than a 12-team league rosters, and everyone
+    # left over is a free agent -- which is how a real league looks.
+    squads = draft(ranked, cfg.teams, ROUNDS)
 
     rosters = {
         name: to_roster(squad, table, cfg, name)
@@ -140,7 +146,10 @@ def main() -> None:
 
     drafted = [p for roster in rosters.values() for p in roster.all_players()]
     assert len(drafted) == len(set(drafted)), "a player was drafted twice"
-    print(f"{len(drafted)} of {len(ranked)} players across {len(rosters)} teams")
+    print(
+        f"{len(drafted)} players across {len(rosters)} teams "
+        f"({len(ranked) - len(drafted)} left as free agents)"
+    )
 
     OUT.write_text(dump(rosters), encoding="utf-8")
     print(f"wrote {OUT.relative_to(REPO)}")

@@ -1,3 +1,5 @@
+import statistics
+
 import numpy as np
 import pytest
 
@@ -10,6 +12,8 @@ from fpr.core.simulate import SimulationError, coin_flip_fraction, slot_position
 # either structural or wide enough to survive the noise.
 QUICK = 60
 STEADY = 300
+# For assertions where the signal is smaller than a few hundred trials of noise.
+HEAVY = 1200
 
 
 @pytest.fixture(scope="module")
@@ -170,18 +174,47 @@ class TestPerPlayerAvailabilityMatters:
     def test_switching_to_a_flat_rate_moves_the_standings(self, league):
         """Section 2.4 is explicit: if nothing moves, something is broken.
 
-        A flat rate can't tell a running-back-heavy roster from a
-        quarterback-heavy one, so the two models have to disagree somewhere.
+        Uses more trials than the tests above. The effect is real but modest
+        when no player carries an injury designation -- it comes only from the
+        positional mix -- and at a few hundred trials the Monte Carlo noise is
+        larger than the signal. Asserting on expected finish rather than on
+        integer placings also helps, since a continuous measure doesn't need a
+        team to cross a whole position to register.
         """
-        per_player = simulate.run(league, trials=STEADY, seed=11)
-        flat = simulate.run(league, trials=STEADY, seed=11, flat_availability=True)
+        per_player = simulate.run(league, trials=HEAVY, seed=11)
+        flat = simulate.run(league, trials=HEAVY, seed=11, flat_availability=True)
 
-        moved = [
-            t
-            for t in league.teams
-            if per_player.ordered().index(t) != flat.ordered().index(t)
-        ]
-        assert moved, "per-player availability changed nobody's ranking"
+        shifts = {
+            team: per_player.expected_finish(team) - flat.expected_finish(team)
+            for team in league.teams
+        }
+        assert max(abs(v) for v in shifts.values()) > 0.1, (
+            "per-player availability moved nobody's expected finish"
+        )
+
+    def test_running_back_heavy_rosters_are_the_ones_that_suffer(self, league):
+        """The mechanism, not just the fact that something changed.
+
+        A flat rate can't tell a back-heavy roster from a receiver-heavy one.
+        The real model can: backs have the lowest base availability of any
+        position, so loading up on them should cost a team once availability
+        stops being uniform. If the sign of this ever flips, the position rates
+        are wired up backwards.
+        """
+        per_player = simulate.run(league, trials=HEAVY, seed=11)
+        flat = simulate.run(league, trials=HEAVY, seed=11, flat_availability=True)
+
+        rates = league.cfg.availability.position_base_rate
+        assert rates["RB"] < rates["WR"], "premise: backs are the fragile ones"
+
+        rb_share, penalty = [], []
+        for team, roster in league.rosters.items():
+            positions = [league.table[n].position for n in roster.all_players()]
+            rb_share.append(sum(p == "RB" for p in positions) / len(positions))
+            # Positive means a worse (higher) expected finish under per-player.
+            penalty.append(per_player.expected_finish(team) - flat.expected_finish(team))
+
+        assert statistics.correlation(rb_share, penalty) > 0.3
 
     def test_injuries_hit_the_team_that_has_them(self, league, config_path, csv_path,
                                                  rosters_path):

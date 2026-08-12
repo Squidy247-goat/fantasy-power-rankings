@@ -3,6 +3,7 @@ import pytest
 from fpr.adapters.raw_csv import RawPlayer
 from fpr.core.consensus import build as build_consensus
 from fpr.core.lineup import LineupError, Roster, build, build_optimal
+from fpr.core.names import same_player
 
 
 def mini_table(cfg, players):
@@ -283,9 +284,9 @@ class TestAgainstRealData:
         lineup = build("Real Team", roster, real_table, cfg)
         # Gibbs (consensus 1.75) outranks Cook (12.25), whatever order the
         # platform listed them in.
-        assert lineup["RB1"].name == "Jahmyr Gibbs"
-        assert lineup["RB2"].name == "James Cook"
-        assert lineup["QB"].name == "Josh Allen"
+        assert same_player(lineup["RB1"].name, "Jahmyr Gibbs")
+        assert same_player(lineup["RB2"].name, "James Cook")
+        assert same_player(lineup["QB"].name, "Josh Allen")
         assert len(lineup.slots) == 10
 
     def test_suffix_spellings_resolve(self, real_table, cfg):
@@ -298,5 +299,7 @@ class TestAgainstRealData:
             bench=["Tucker Kraft", "Rome Odunze"],
         )
         lineup = build("Real Team", roster, real_table, cfg)
-        assert lineup["RB2"].name == "James Cook"
-        assert lineup["WR2"].name == "Marvin Harrison"
+        # The display name is whatever the CSV spells it; identity is what
+        # matters, and that survives either spelling.
+        assert same_player(lineup["RB2"].name, "James Cook")
+        assert same_player(lineup["WR2"].name, "Marvin Harrison")
