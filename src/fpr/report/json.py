@@ -3,9 +3,12 @@
 Stating a 70% chance of a top-four finish is only meaningful if somebody
 eventually checks whether those teams finished top four about 70% of the time.
 That check needs history, and history can only be collected forwards -- which
-is why this ships with the daily job rather than with the calibration work that
-will eventually consume it. Starting to record months later means waiting
-months longer.
+is why this exists well before the calibration work that will consume it.
+Starting to record months later just means waiting months longer.
+
+Writing a snapshot is opt-in, via --snapshot. Nothing in this repo writes them
+on a schedule: a snapshot names real league members and their rosters, so where
+and how often it gets written is the operator's call, not a default.
 
 Each snapshot holds the standings, the simulation's probabilities, and the
 consensus ranks used that day. The last of those matters more than it looks:

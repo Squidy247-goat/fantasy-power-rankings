@@ -130,21 +130,41 @@ warning at the top of the report. That's deliberate: a stale column somebody
 knows about is recoverable, whereas quietly averaging in an empty table gives
 you a consensus that looks fine and is wrong.
 
-### The daily job
+### Snapshots and history
 
-`.github/workflows/daily.yml` runs at 12:00 UTC and on manual dispatch. It
-syncs, ranks, simulates, and commits `reports/YYYY-MM-DD.md` plus
-`history/YYYY-MM-DD.json`. Needs `LEAGUE_ID`, `ESPN_S2` and `SWID` as repository
-secrets.
+```
+fpr simulate --snapshot history/2026-08-12.json
+```
 
-The JSON snapshots exist so the model's stated probabilities can eventually be
-checked against what actually happened — if a team is given a 70% chance of
-finishing top four, did teams in that bucket do so about 70% of the time. That
-check needs history, and history only accumulates forwards, which is why the
-snapshots ship with the daily job rather than with the calibration work that
-will consume them.
+Writes a dated JSON record alongside the report: the standings, the full finish
+distribution rather than just the headline probabilities, the consensus ranks
+used that day, and the curve constants in force.
 
-### What it reports on this league
+That last part is the point. With it, a later comparison can tell whether a
+team moved because its roster changed, because the sources changed their minds,
+or because someone retuned the config. Without it, all three look identical.
+
+The eventual use is calibration — if a team is given a 70% chance of finishing
+top four, did teams in that bucket do so about 70% of the time? That needs
+history, and history only accumulates forwards, so it's worth writing snapshots
+long before there's anything to do with them.
+
+### No scheduled jobs live here
+
+This repo runs CI on push and nothing else. There is deliberately no cron job,
+no platform credentials, and no committed report.
+
+The reason is that a generated report contains real league members' team names
+and their full rosters. `config/rosters.yaml` is gitignored for exactly that
+reason, and a scheduled job committing reports into a public repository would
+walk straight around that protection — publishing on a timer the very thing the
+gitignore exists to withhold.
+
+If you want automation, run it from a private repository or a machine you
+control, pointing at this package. `reports/` and `history/` are gitignored here
+so a local run can't put league data into a public repo by accident.
+
+### What it reports
 
 Run against the example rosters, roughly a third of the 660 slot matchups turn
 out to be decided by a margin narrower than the sources' own disagreement about

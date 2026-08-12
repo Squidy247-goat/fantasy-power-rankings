@@ -12,3 +12,8 @@ config/rosters.yaml
 # Ranking exports belong to whoever published them. Don't commit, don't redistribute.
 data/sources/
 .cache/
+
+# Generated reports name real league members and their rosters. Never in a
+# public repo, even by accident.
+reports/
+history/

@@ -137,8 +137,13 @@ structure, and we've concluded we shouldn't be parsing those pages at all.
 **Keep:** the manual export workflow for CBS, ESPN and Flock. `data/README.md`
 already documents the filename and format each one needs, `data/sources/` is
 gitignored, and the repo works for anyone supplying their own exports. Three
-sources refreshed by hand occasionally and one refreshed nightly is a perfectly
-reasonable end state, and it's the one the terms actually permit.
+sources refreshed by hand occasionally and one refreshed on demand is a
+perfectly reasonable end state, and it's the one the terms actually permit.
+
+Note that no scheduled job runs from this repository — see the README. The
+refresh is a flag you pass, not a timer. Nothing above assumes otherwise; the
+terms analysis applies equally whether a fetch happens nightly or by hand, and
+FantasyPros is the only source where either is acceptable.
 
 **Still relevant:** section 4.4's graceful-failure requirement. With one
 automated source it matters more, not less — if the FantasyPros call fails, the
