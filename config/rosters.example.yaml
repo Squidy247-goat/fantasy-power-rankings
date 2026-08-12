@@ -1,0 +1,30 @@
+# Copy this to config/rosters.yaml (gitignored) and fill in the real league.
+# Team names here are made up.
+#
+# Slot keys are the position group, not the display slot. Which back is RB1 and
+# which is RB2 is worked out from value at runtime -- don't try to encode the
+# ordering here, and don't trust the order ESPN shows either. Managers leave
+# their best player on the bench more often than you'd think.
+#
+# Every team needs exactly 1 QB, 2 RB, 2 WR, 1 TE, 2 FLEX, and at least 2
+# bench-eligible players. Kickers and defenses are never modeled -- leave them
+# out entirely. Bench-eligible means RB/WR/TE; a backup QB doesn't count.
+
+teams:
+  Team Alpha:
+    qb: [Jalen Hurts]
+    rb: [Jahmyr Gibbs, James Cook]
+    wr: [Puka Nacua, Drake London]
+    te: [Trey McBride]
+    flex: [Chase Brown, Zay Flowers]
+    bench: [Tucker Kraft, Rome Odunze, Javonte Williams]
+
+  Team Bravo:
+    qb: [Josh Allen]
+    rb: [Bijan Robinson, Kenneth Walker]
+    wr: [Ja'Marr Chase, Nico Collins]
+    te: [Brock Bowers]
+    flex: [Saquon Barkley, Tee Higgins]
+    bench: [Jaylen Waddle, Bucky Irving, Kyle Pitts]
+
+  # ...and so on for the remaining ten teams.

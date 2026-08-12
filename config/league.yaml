@@ -1,0 +1,95 @@
+# Everything tunable lives here. Nothing in fpr/core/ should hardcode any of it.
+#
+# Note what is NOT in this file: consensus ranks, value scores, availability
+# rates, simulation output. Those are all computed from raw input on every run.
+# bench_weight below is the one borderline case -- it's a configured input to
+# the deterministic model, and the simulation independently measures what it
+# should be and complains if the two have drifted apart.
+
+teams: 12
+
+slots:
+  - QB
+  - RB1
+  - RB2
+  - WR1
+  - WR2
+  - TE
+  - FLEX1
+  - FLEX2
+  - BN1
+  - BN2
+
+# Starters all count fully. The bench number came out of the availability
+# simulation, not a guess -- see the derived-weight report. First pass at this
+# was 0.35 by intuition, which turned out to be about 3x too generous.
+slot_weights:
+  QB: 1.0
+  RB1: 1.0
+  RB2: 1.0
+  WR1: 1.0
+  WR2: 1.0
+  TE: 1.0
+  FLEX1: 1.0
+  FLEX2: 1.0
+  BN1: 0.11
+  BN2: 0.11
+
+# How far the configured bench weight can drift from the simulated one before
+# the report flags it.
+bench_weight_tolerance: 0.03
+
+# Roster composition is enforced strictly. A roster that doesn't match raises
+# instead of quietly building a wrong lineup.
+roster_shape:
+  qb: 1
+  rb: 2
+  wr: 2
+  te: 1
+  flex: 2
+  bench_min: 2
+
+# QB is deliberately missing here. A backup QB in a single-QB league is close
+# to worthless, and counting one rewards hoarding instead of usable depth.
+bench_eligible_positions: [RB, WR, TE]
+
+# value(rank) = max(floor, ceiling - decay * ln(rank))
+# Concave on purpose: rank 1 -> 20 has to matter more than rank 200 -> 320,
+# which straight rank differential gets exactly backwards.
+value_curve:
+  ceiling: 330.0
+  decay: 51.0
+  floor: 20.0
+
+consensus:
+  # Rostered but listed by nobody -> replacement level, deepest rank + this.
+  # Never drop the player; that just moves the failure into a KeyError later.
+  unranked_offset: 40
+
+simulation:
+  trials: 1500
+  weeks: 14
+  # Each trial redraws every player's rank from Normal(consensus, spread).
+  min_spread: 6.0             # floor, even when all four sources agree exactly
+  single_source_spread: 30.0  # one opinion is less trustworthy than a contested average
+
+availability:
+  # These are documented estimates, not fitted to anything. RBs miss the most,
+  # QBs the fewest. Replacing them with values fitted against real outcomes is
+  # what the history/calibration work is eventually for.
+  position_base_rate:
+    QB: 0.88
+    RB: 0.79
+    WR: 0.84
+    TE: 0.83
+  # Season-long factors, so gentler than the odds of sitting out one specific
+  # week -- a QUESTIONABLE tag in week 1 is usually a non-issue by week 4.
+  status_multiplier:
+    ACTIVE: 1.0
+    PROBABLE: 0.95
+    QUESTIONABLE: 0.85
+    DOUBTFUL: 0.65
+    OUT: 0.55
+    INJURY_RESERVE: 0.08
+  # Nobody is ever a lock and nobody is ever a total zero.
+  clamp: [0.02, 0.97]
