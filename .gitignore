@@ -11,3 +11,4 @@ config/rosters.yaml
 
 # Ranking exports belong to whoever published them. Don't commit, don't redistribute.
 data/sources/
+.cache/
