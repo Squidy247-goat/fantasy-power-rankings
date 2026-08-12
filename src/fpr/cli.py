@@ -18,6 +18,7 @@ from fpr.core import simulate
 from fpr.core.consensus import ConsensusError
 from fpr.core.lineup import LineupError
 from fpr.core.simulate import SimulationError
+from fpr.report import json as json_report
 from fpr.report import markdown
 
 # Anything raised deliberately by the pipeline. These get a clean one-line
@@ -60,6 +61,11 @@ def _common_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--env", default=".env", help="path to the credentials file")
     parser.add_argument("-o", "--out", type=pathlib.Path, help="write to a file instead of stdout")
+    parser.add_argument(
+        "--snapshot",
+        type=pathlib.Path,
+        help="also write a dated JSON snapshot here, for later calibration",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -178,12 +184,28 @@ def _quote(name: str) -> str:
 def cmd_rank(args) -> str:
     league = _build(args)
     result = _simulate(league, args) if args.simulate else None
-    return markdown.render(league, result)
+    # Render before writing the snapshot, so a failure in the report doesn't
+    # leave a snapshot on disk with no report to go with it.
+    report = markdown.render(league, result)
+    _write_snapshot(args, league, result)
+    return report
 
 
 def cmd_simulate(args) -> str:
     league = _build(args)
-    return markdown.render(league, _simulate(league, args))
+    result = _simulate(league, args)
+    report = markdown.render(league, result)
+    _write_snapshot(args, league, result)
+    return report
+
+
+def _write_snapshot(args, league, result) -> None:
+    path = getattr(args, "snapshot", None)
+    if not path:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json_report.render(league, result), encoding="utf-8")
+    print(f"wrote {path}", file=sys.stderr)
 
 
 def _simulate(league, args):
