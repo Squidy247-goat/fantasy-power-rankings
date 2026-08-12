@@ -107,6 +107,29 @@ A sync failure stops the run rather than falling back to the roster file.
 Silently ranking a stale roster produces a report that looks completely normal
 and is wrong.
 
+### Refreshing the rankings
+
+```
+fpr simulate --refresh-rankings
+```
+
+Pulls a fresh FantasyPros expert consensus column over their official API and
+merges it into the committed CSV, matching players by normalized name so a
+"James Cook III" row and a "James Cook" response end up as one player rather
+than two half-ranked ones. Needs `FANTASYPROS_API_KEY` in `.env`.
+
+Only that one column refreshes. The other three sources stay manual exports on
+purpose — see `docs/source-investigation.md`, which found that CBS's and ESPN's
+terms prohibit automated collection by name, and that Flock puts its rankings
+behind a login. FantasyPros is the one source that sells the data directly,
+which makes it both the only one worth automating and the only one where
+automating it is clearly fine.
+
+If the API call fails, the run falls back to the last good copy and prints a
+warning at the top of the report. That's deliberate: a stale column somebody
+knows about is recoverable, whereas quietly averaging in an empty table gives
+you a consensus that looks fine and is wrong.
+
 ### The daily job
 
 `.github/workflows/daily.yml` runs at 12:00 UTC and on manual dispatch. It

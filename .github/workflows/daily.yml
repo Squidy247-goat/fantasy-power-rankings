@@ -43,9 +43,24 @@ jobs:
           LEAGUE_ID: ${{ secrets.LEAGUE_ID }}
           ESPN_S2: ${{ secrets.ESPN_S2 }}
           SWID: ${{ secrets.SWID }}
+          FANTASYPROS_API_KEY: ${{ secrets.FANTASYPROS_API_KEY }}
         run: |
+          # The FantasyPros refresh is optional. Without a key the run uses the
+          # committed CSV, which is three manual columns plus a stale ECR -- a
+          # perfectly good report, just not a freshened one. With a key, only
+          # the ECR column updates; the other three sources are manual exports
+          # by design (see docs/source-investigation.md).
+          refresh=""
+          if [ -n "${FANTASYPROS_API_KEY}" ]; then
+            refresh="--refresh-rankings"
+            echo "FantasyPros key present, refreshing the ECR column"
+          else
+            echo "No FantasyPros key, using the committed rankings"
+          fi
+
           fpr simulate \
             --platform espn \
+            ${refresh} \
             --out "reports/${REPORT_DATE}.md" \
             --snapshot "history/${REPORT_DATE}.json"
 

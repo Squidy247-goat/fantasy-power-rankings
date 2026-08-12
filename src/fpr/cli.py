@@ -12,6 +12,7 @@ import pathlib
 import sys
 
 from fpr import config, pipeline, platforms
+from fpr.adapters.fantasypros import FantasyProsError
 from fpr.adapters.raw_csv import SourceDataError
 from fpr.adapters.rosters import RosterFileError
 from fpr.core import simulate
@@ -31,6 +32,7 @@ EXPECTED = (
     ConsensusError,
     LineupError,
     SimulationError,
+    FantasyProsError,
     platforms.PlatformError,
     KeyError,
 )
@@ -60,6 +62,13 @@ def _common_args(parser: argparse.ArgumentParser) -> None:
         help="sync rosters live instead of reading the roster file",
     )
     parser.add_argument("--env", default=".env", help="path to the credentials file")
+    parser.add_argument(
+        "--refresh-rankings",
+        action="store_true",
+        help="pull a fresh FantasyPros ECR column over their API (needs "
+        "FANTASYPROS_API_KEY); falls back to the cached copy with a warning",
+    )
+    parser.add_argument("--season", type=int, help="season year for the rankings refresh")
     parser.add_argument("-o", "--out", type=pathlib.Path, help="write to a file instead of stdout")
     parser.add_argument(
         "--snapshot",
@@ -120,6 +129,8 @@ def _build(args):
         rosters_path=args.rosters,
         platform=args.platform,
         env_path=args.env,
+        refresh_rankings=args.refresh_rankings,
+        season=args.season,
         optimal=args.optimal,
     )
 

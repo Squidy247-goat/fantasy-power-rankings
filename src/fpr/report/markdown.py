@@ -185,6 +185,7 @@ def render(league: League, result: SimulationResult | None = None) -> str:
         "the rest of the league, not by total roster value. Point differential "
         "is a secondary signal.",
         "",
+        *_warnings(league),
         "## Standings",
         "",
         f"Sorted by score. W-L-T counts every slot equally, but score weights "
@@ -214,6 +215,17 @@ def render(league: League, result: SimulationResult | None = None) -> str:
         "",
     ]
     return "\n".join(parts)
+
+
+def _warnings(league: League) -> list[str]:
+    """Surface non-fatal problems where a reader will actually see them.
+
+    A stale ranking column is recoverable, but only if somebody knows about it.
+    Buried in a log nobody reads, it's indistinguishable from fresh data.
+    """
+    if not league.warnings:
+        return []
+    return ["> **Warnings**", ">", *[f"> - {w}" for w in league.warnings], ""]
 
 
 def _source_summary(league: League) -> str:

@@ -17,7 +17,7 @@ import pathlib
 from dataclasses import dataclass
 
 from fpr import config
-from fpr.adapters import raw_csv
+from fpr.adapters import fantasypros, raw_csv, sources
 from fpr.adapters import rosters as roster_file
 from fpr.config import LeagueConfig
 from fpr.core import lineup as lineup_mod
@@ -40,6 +40,10 @@ class League:
     injury_status: dict[str, str]
     optimal: bool
     platform: str | None = None
+    # Non-fatal problems worth putting in front of a reader: a stale ranking
+    # column, a position two sources disagree about. Not exceptions, because
+    # none of them should stop a daily run, but not silent either.
+    warnings: tuple[str, ...] = ()
 
     @property
     def teams(self) -> list[str]:
@@ -59,6 +63,8 @@ def build(
     injury_status: dict[str, str] | None = None,
     platform: str | None = None,
     env_path: str = ".env",
+    refresh_rankings: bool = False,
+    season: int | None = None,
     optimal: bool = False,
 ) -> League:
     """Load everything and slot every roster.
@@ -67,7 +73,19 @@ def build(
     directly, synced from a platform, or read from the YAML file.
     """
     cfg = config.load(config_path)
-    table = build_consensus(raw_csv.load(rankings_path), cfg)
+    warnings: list[str] = []
+
+    players = raw_csv.load(rankings_path)
+    if refresh_rankings:
+        fetched, fetch_warnings = _refresh(env_path, season)
+        warnings.extend(fetch_warnings)
+        # The committed file goes first, so it owns the display spelling and
+        # position and the API just fills in a fresher ECR column.
+        merged = sources.combine(players, fetched)
+        players = merged.players
+        warnings.extend(merged.warnings)
+
+    table = build_consensus(players, cfg)
 
     if rosters is None and platform:
         rosters, synced_status = _sync(platform, env_path)
@@ -91,7 +109,35 @@ def build(
         injury_status=injury_status or {},
         optimal=optimal,
         platform=platform,
+        warnings=tuple(warnings),
     )
+
+
+def _refresh(env_path: str, season: int | None) -> tuple[list, list[str]]:
+    """Pull a fresh FantasyPros ECR column.
+
+    Needs FANTASYPROS_API_KEY. Section 4.2 settled on the API rather than a
+    scraper for this source; see docs/source-investigation.md.
+    """
+    import os
+
+    from fpr.platforms.base import load_env
+
+    load_env(env_path)
+    api_key = os.getenv("FANTASYPROS_API_KEY")
+    if not api_key:
+        raise fantasypros.FantasyProsError(
+            "FANTASYPROS_API_KEY is not set. Request a key at "
+            "secure.fantasypros.com/api-keys/request/ and add it to .env, or "
+            "drop --refresh-rankings to use the committed CSV."
+        )
+
+    if season is None:
+        from fpr.platforms.espn import _current_season
+
+        season = _current_season()
+
+    return fantasypros.load(api_key, season)
 
 
 class MissingPlayers(KeyError):
