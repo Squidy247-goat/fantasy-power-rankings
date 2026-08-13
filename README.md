@@ -1,186 +1,113 @@
-# Fantasy power rankings
+# Fantasy Power Rankings
 
-Power rankings for a 12-team ESPN league that don't work the way most power
-rankings work.
+Power rankings for a fantasy football league that don't rank teams by total
+roster value. Instead, every team plays every other team head-to-head at
+every lineup slot — QB vs QB, RB1 vs RB1, and so on — and the standings are
+how many of those matchups a team actually wins. Point differential is
+tracked as a secondary signal, since it tells a different story: a team can
+own the most talent in the league and still finish mid-table if that talent
+is concentrated in a couple of slots instead of spread across the lineup.
 
-The usual approach adds up a roster's total value and sorts. That rewards
-hoarding — a team with four good running backs looks great even though it can
-only start two of them. This one instead plays every team against every other
-team at every lineup slot: QB against QB, RB1 against RB1, and so on down the
-lineup. Twelve teams, ten slots, every pairing once, so 660 individual
-matchups. Teams are ranked by how many of those they win. Point differential
-gets tracked separately as a tiebreaker and a sanity check.
+On top of the deterministic standings, a Monte Carlo simulation redraws every
+player's rank from how much the sources actually disagree on them, and models
+week-to-week injury availability, producing finish probabilities instead of
+one fixed answer — plus an empirically *derived* bench-slot weight rather
+than a guessed one.
 
-Because it's slot-by-slot, every standing is explicable. "Why is this team
-fourth" is always answerable by reading one row of the positional strength
-table.
+## Install
 
-## The parts
-
-**Consensus ranks.** Four sources (FantasyPros ECR, Flock Fantasy's expert
-composite, ESPN's Field Yates, CBS consensus) each publish their own ordering.
-They disagree, they spell names differently, and they mix kickers and defenses
-into their lists in inconsistent amounts. Sources get filtered to skill
-positions and re-indexed 1..N before anything is averaged — averaging raw ranks
-across lists carrying different amounts of K/DST noise quietly biases the
-result. A player nobody lists is treated as replacement level rather than
-dropped.
-
-**Value curve.** Rank differential is the wrong scale for margin of victory: it
-implies the gap between 200 and 320 is bigger than the gap between 1 and 20.
-Real scoring decays steeply at the top and flattens out deep. So rank gets run
-through `max(floor, ceiling - decay * ln(rank))` before anything is compared.
-
-**Monte Carlo.** A single deterministic answer is false confidence. The sources
-disagree, sometimes wildly, and averaging that disagreement away doesn't make it
-go away — on the league this was built for, about a third of the 660 slot
-matchups were decided by a margin narrower than the sources' own spread. Those
-are coin flips being reported as certainties. So the whole round robin gets
-replayed a thousand-plus times with each player's rank redrawn from a normal
-centered on his consensus and widened by how much the sources argue about him.
-Output is a distribution over finish position, not a number.
-
-**Bench weight, derived rather than guessed.** Bench players are worth
-something for exactly one reason: starters miss games. So rather than picking a
-bench weight by feel, the simulation runs a 14-week season where each starter
-has a per-week chance of being available, weighted by position (RBs get hurt
-most, QBs least) and by current injury designation. When a starter is out, the
-best *healthy* bench player covers — a bench player who's himself unavailable
-can't, which keeps this from being a free lunch. The fraction of realized
-lineup value that actually came from bench coverage is the bench weight. It
-came out near 0.10. The intuition-based guess it replaced was 0.35.
-
-Availability priors are documented estimates, not fitted values. That's called
-out in `config/league.yaml` too, and fitting them against real outcomes is what
-the history/calibration work is for.
-
-## Setup
-
+```bash
+pip install "fpr[platforms] @ git+https://github.com/YOUR_USERNAME/fantasy-power-rankings.git"
 ```
-python -m venv venv && source venv/bin/activate
+
+Drop `[platforms]` if you're not syncing rosters live from ESPN/Yahoo/Sleeper
+and are fine typing them into `config/rosters.yaml` by hand.
+
+## Quick start
+
+1. Copy `config/rosters.example.yaml` to `config/rosters.yaml` and fill in
+   your league — or skip this and sync live instead (see Platforms below).
+2. Get ranking data. This tool needs raw per-source ranks, never a
+   precomputed consensus — see `raw_rankings.csv`'s header for the exact
+   column format. FantasyPros, ESPN, and CBS all publish rankings; export
+   whatever you can and drop it in.
+3. Run it:
+
+```bash
+fpr rank                 # deterministic standings, lineups as set
+fpr rank --optimal        # re-slotted into each team's best legal lineup
+fpr simulate               # adds finish probabilities + derived bench weight
+```
+
+## Config
+
+Everything tunable lives in `config/league.yaml`: slot weights, the
+rank-to-value curve, roster shape, availability priors, simulation trial
+count. Nothing in the core logic hardcodes any of these — if a number in a
+report doesn't look right, it's a config change, not a code change.
+
+`raw_rankings.csv` should be the **full list** each source ranks, not
+filtered down to your specific rosters. Roster membership changes constantly
+— trades, waivers, a different league entirely — and filtering the data to
+match it just means it silently goes stale the next time something changes.
+
+## Platforms
+
+```bash
+fpr sync --platform espn        # pull rosters without ranking, useful for debugging
+fpr simulate --platform espn    # sync, then rank and simulate in one step
+```
+
+ESPN needs `LEAGUE_ID` always, and `ESPN_S2` + `SWID` (browser cookies) for
+private leagues — copy `.env.example` to `.env` and fill them in locally.
+Sleeper needs no auth at all. Yahoo needs an app registered at
+developer.yahoo.com first — that step can't be scripted, everything after it
+can.
+
+## Automating it daily
+
+**Keep your real league data out of this repo, in a second, private one.**
+This repo is the general-purpose tool; your rosters, secrets, and generated
+reports belong somewhere only you can see, because reports on the default
+schedule commit your league members' real team names and rosters, and a
+public repo publishes every commit.
+
+```bash
+gh repo create your-league-name --private --clone
+cd your-league-name
+mkdir -p .github/workflows config
+```
+
+Copy a daily workflow into `.github/workflows/`, installing this package
+from GitHub rather than assuming the code lives in the same repo:
+
+```yaml
+- name: Install
+  run: pip install "fpr[platforms] @ git+https://github.com/YOUR_USERNAME/fantasy-power-rankings.git"
+```
+
+Then, in the private repo: set your three ESPN secrets (`gh secret set
+LEAGUE_ID`, etc., run one at a time — pasting several `gh secret set`
+commands as one block queues input into the wrong prompt), add your real
+`config/league.yaml` and `raw_rankings.csv`, commit, push, and trigger it by
+hand once (`gh workflow run "Daily rankings"`) before trusting the schedule.
+
+## Optional: FantasyPros API refresh
+
+`fpr simulate --refresh-rankings` pulls a live FantasyPros ECR column instead
+of using whatever's committed. Needs `FANTASYPROS_API_KEY` — request one at
+secure.fantasypros.com/api-keys/request. Without a key the tool just uses the
+committed CSV; nothing breaks.
+
+## Contributing
+
+```bash
 pip install -e ".[dev]"
+pytest
+ruff check src tests
 ```
 
-Add `.[platforms]` if you want to sync rosters off ESPN/Sleeper/Yahoo instead
-of writing them out by hand.
-
-Rosters go in `config/rosters.yaml` (gitignored — it names real people). Copy
-`config/rosters.example.yaml` to start. Ranking source exports go in
-`data/sources/`, also gitignored; see `data/README.md` for what goes where.
-
-## Using it
-
-```
-fpr rank                      # deterministic standings, lineups as set
-fpr rank --optimal            # ...as they could have been set
-fpr simulate                  # standings plus finish probabilities
-fpr simulate --seed 1 -o report.md
-```
-
-Useful flags: `--trials` and `--weeks` override the config, `--seed` makes a run
-reproducible, and `--flat-availability` swaps the per-player injury model for
-one league-wide rate. That last one is a diagnostic — if it doesn't move
-anybody in the standings, the per-player model isn't doing its job.
-
-The example rosters work out of the box:
-
-```
-fpr simulate --rosters config/rosters.example.yaml
-```
-
-They're generated by `scripts/make_example_rosters.py`, which snake-drafts the
-whole ranked pool into twelve legal teams so the pipeline is runnable without
-anyone's real league.
-
-### Syncing rosters
-
-```
-fpr sync --platform espn            # write rosters to config/rosters.yaml
-fpr simulate --platform espn        # sync and rank in one go, no file involved
-```
-
-ESPN and Sleeper are wired up. ESPN needs `LEAGUE_ID` in `.env`, plus `ESPN_S2`
-and `SWID` cookies if the league is private; Sleeper needs nothing but a league
-ID. Both return the same roster shape, so everything downstream is identical.
-
-A sync failure stops the run rather than falling back to the roster file.
-Silently ranking a stale roster produces a report that looks completely normal
-and is wrong.
-
-### Refreshing the rankings
-
-```
-fpr simulate --refresh-rankings
-```
-
-Pulls a fresh FantasyPros expert consensus column over their official API and
-merges it into the committed CSV, matching players by normalized name so a
-"James Cook III" row and a "James Cook" response end up as one player rather
-than two half-ranked ones. Needs `FANTASYPROS_API_KEY` in `.env`.
-
-Only that one column refreshes. The other three sources stay manual exports on
-purpose — see `docs/source-investigation.md`, which found that CBS's and ESPN's
-terms prohibit automated collection by name, and that Flock puts its rankings
-behind a login. FantasyPros is the one source that sells the data directly,
-which makes it both the only one worth automating and the only one where
-automating it is clearly fine.
-
-If the API call fails, the run falls back to the last good copy and prints a
-warning at the top of the report. That's deliberate: a stale column somebody
-knows about is recoverable, whereas quietly averaging in an empty table gives
-you a consensus that looks fine and is wrong.
-
-### Snapshots and history
-
-```
-fpr simulate --snapshot history/2026-08-12.json
-```
-
-Writes a dated JSON record alongside the report: the standings, the full finish
-distribution rather than just the headline probabilities, the consensus ranks
-used that day, and the curve constants in force.
-
-That last part is the point. With it, a later comparison can tell whether a
-team moved because its roster changed, because the sources changed their minds,
-or because someone retuned the config. Without it, all three look identical.
-
-The eventual use is calibration — if a team is given a 70% chance of finishing
-top four, did teams in that bucket do so about 70% of the time? That needs
-history, and history only accumulates forwards, so it's worth writing snapshots
-long before there's anything to do with them.
-
-### No scheduled jobs live here
-
-This repo runs CI on push and nothing else. There is deliberately no cron job,
-no platform credentials, and no committed report.
-
-The reason is that a generated report contains real league members' team names
-and their full rosters. `config/rosters.yaml` is gitignored for exactly that
-reason, and a scheduled job committing reports into a public repository would
-walk straight around that protection — publishing on a timer the very thing the
-gitignore exists to withhold.
-
-If you want automation, run it from a private repository or a machine you
-control, pointing at this package. `reports/` and `history/` are gitignored here
-so a local run can't put league data into a public repo by accident.
-
-### What it reports
-
-Run against the example rosters, roughly a third of the 660 slot matchups turn
-out to be decided by a margin narrower than the sources' own disagreement about
-the two players involved. The bench weight comes out around 0.10 with a 95%
-interval of about 0.08 to 0.11. Both of those are computed on every run, and
-the report flags the configured bench weight if it has drifted from the
-measured one.
-
-## A rule worth stating outright
-
-No derived number ever gets written to a data or config file. Input files hold
-only what a ranking source itself published — names, positions, raw ranks.
-Consensus rank, value score, availability rate, bench weight, simulation
-output: all computed from raw input, every run, every time.
-
-This is worth being explicit about because caching the answer is genuinely
-tempting for speed, and doing it would make the repo untestable against the one
-thing it exists to compute. If a number that a formula should have produced
-ends up sitting in a YAML file, that's a bug.
+Core logic (`fpr/core/`) has no file or network I/O and is where tests should
+be heaviest — a subtle bug there silently produces wrong rankings for every
+team at once. Platform adapters are tested against recorded fixtures, not
+live API calls.
